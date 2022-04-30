@@ -126,9 +126,9 @@ def main(conf: DictConfig):
         print("Shape of dataset is {}".format(data_shape))
         print("Total training samples is {}".format(Num_extract_train))
 
-        Num_extract_eval = feature_transform(conf=conf, mode='eval')
-        print("Total number of samples used for evaluation: {}".format(Num_extract_eval))
-        print(" --Feature Extraction Complete--")
+        #Num_extract_eval = feature_transform(conf=conf, mode='eval')
+        #print("Total number of samples used for evaluation: {}".format(Num_extract_eval))
+        #print(" --Feature Extraction Complete--")
 
     if conf.set.train:
 
@@ -193,15 +193,16 @@ def main(conf: DictConfig):
         for feat_file in all_feat_files:
             feat_name = feat_file.split('/')[-1]
             audio_name = feat_name.replace('h5', 'wav')
-
-            print("Processing audio file : {}".format(audio_name))
+            # remove the folder name from audio name
+            audio_name2 = audio_name.split('\\')[1]
+            print("Processing audio file : {}".format(audio_name2))
 
             hdf_eval = h5py.File(feat_file, 'r')
             strt_index_query = hdf_eval['start_index_query'][:][0]
 
             onset, offset = evaluate_prototypes(conf, hdf_eval, device, strt_index_query)
 
-            name = np.repeat(audio_name, len(onset))
+            name = np.repeat(audio_name2, len(onset))
             name_arr = np.append(name_arr, name)
             onset_arr = np.append(onset_arr, onset)
             offset_arr = np.append(offset_arr, offset)
