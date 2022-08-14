@@ -10,9 +10,7 @@ from itertools import chain
 pd.options.mode.chained_assignment = None
 
 
-
-def create_dataset(df_pos,pcen,glob_cls_name,file_name,hf,seg_len,hop_seg,fps):
-
+def create_dataset(df_pos, pcen, glob_cls_name, file_name, hf, seg_len, hop_seg, fps):
     '''Chunk the time-frequecy representation to segment length and store in h5py dataset
 
     Args:
@@ -32,9 +30,7 @@ def create_dataset(df_pos,pcen,glob_cls_name,file_name,hf,seg_len,hop_seg,fps):
     else:
         file_index = len(hf['features'][:])
 
-
-    start_time,end_time = time_2_frame(df_pos,fps)
-
+    start_time, end_time = time_2_frame(df_pos, fps)
 
     'For csv files with a column name Call, pick up the global class name'
 
@@ -58,20 +54,19 @@ def create_dataset(df_pos,pcen,glob_cls_name,file_name,hf,seg_len,hop_seg,fps):
         if end_ind - str_ind > seg_len:
             shift = 0
             while end_ind - (str_ind + shift) > seg_len:
-
                 pcen_patch = pcen[int(str_ind + shift):int(str_ind + shift + seg_len)]
 
                 hf['features'].resize((file_index + 1, pcen_patch.shape[0], pcen_patch.shape[1]))
                 hf['features'][file_index] = pcen_patch
+                #print("test1", hf['features'][file_index])
+
                 label_list.append(label)
                 file_index += 1
                 shift = shift + hop_seg
 
             pcen_patch_last = pcen[end_ind - seg_len:end_ind]
 
-
-
-            hf['features'].resize((file_index+1 , pcen_patch.shape[0], pcen_patch.shape[1]))
+            hf['features'].resize((file_index + 1, pcen_patch.shape[0], pcen_patch.shape[1]))
             hf['features'][file_index] = pcen_patch_last
             label_list.append(label)
             file_index += 1
@@ -88,52 +83,100 @@ def create_dataset(df_pos,pcen,glob_cls_name,file_name,hf,seg_len,hop_seg,fps):
             repeat_num = int(seg_len / (pcen_patch.shape[0])) + 1
             pcen_patch_new = np.tile(pcen_patch, (repeat_num, 1))
             pcen_patch_new = pcen_patch_new[0:int(seg_len)]
-            hf['features'].resize((file_index+1, pcen_patch_new.shape[0], pcen_patch_new.shape[1]))
+            hf['features'].resize((file_index + 1, pcen_patch_new.shape[0], pcen_patch_new.shape[1]))
             hf['features'][file_index] = pcen_patch_new
+            #print("test2",  hf['features'][file_index])
+            #print(hf['features'][file_index].shape)
+            #print(test)
             label_list.append(label)
             file_index += 1
 
-    
     print("Total files created : {}".format(file_index))
     return label_list
 
+
 class Feature_Extractor():
 
-       def __init__(self, conf):
-           self.sr =conf.features.sr
-           self.n_fft = conf.features.n_fft
-           self.hop = conf.features.hop_mel
-           self.n_mels = conf.features.n_mels
-           self.fmax = conf.features.fmax
-           #self.win_length = conf.features.win_length
-       def extract_feature(self,audio):
+    def __init__(self, conf):
+        self.sr = conf.features.sr
+        self.n_fft = conf.features.n_fft
+        self.hop = conf.features.hop_mel
+        self.n_mels = conf.features.n_mels
+        self.fmax = conf.features.fmax
+        # self.win_length = conf.features.win_length
 
-           mel_spec = librosa.feature.melspectrogram(audio,sr=self.sr, n_fft=self.n_fft,
-                                                     hop_length=self.hop,n_mels=self.n_mels,fmax=self.fmax)
-           pcen = librosa.core.pcen(mel_spec,sr=22050)
-           pcen = pcen.astype(np.float32)
+    def extract_feature(self, audio):
+        mel_spec = librosa.feature.melspectrogram(audio, sr=self.sr, n_fft=self.n_fft,
+                                                  hop_length=self.hop, n_mels=self.n_mels, fmax=self.fmax)
+        pcen = librosa.core.pcen(mel_spec, sr=22050)
+        pcen = pcen.astype(np.float32)
+        '''
+        # augment features if set in config
+        if aug:
+            logger.info('=== creating augmented features ===')
+            # time stretch direction affects amount of features/type
+            if conf.features.direction == 'up':
+                tsu, df_tsu = aug.timeStretch(audio_path, 'up')
+                feature = torch.cat((feature, tsu), 2)
+                df.append(df_tsu)
+            elif conf.features.direction == 'down':
+                tsd, df_tsd = aug.timeStretch(audio_path, 'down')
+                feature = torch.cat((feature, tsd), 2)
+                df.append(df_tsd)
+            else:
+                tsu, df_tsu = aug.timeStretch(audio_path, 'up')
+                tsd, df_tsd = aug.timeStretch(audio_path, 'down')
+                feature = torch.cat((feature, tsu, tsd), 2)
+                df.append(df_tsu)
+                df.append(df_tsd)
 
-           return pcen
+            # get masking augs, add to feature
+            fm = torch.tensor([])
+            tm = torch.tensor([])
+            df_fm = pd.DataFrame()
+            df_tm = pd.DataFrame()
+            # get augmentation in chunks
+            for chunk in range(0, feature.shape[2], 2588):
+                fm_chunk, df_fm_chunk = aug.frequencyMask(feature[:, :, chunk:chunk + 2588],
+                                                          audio_path)
+                tm_chunk, df_tm_chunk = aug.timeMask(feature[:, :, chunk:chunk + 2588],
+                                                     audio_path)
 
-def extract_feature(audio_path,feat_extractor,conf):
+                fm = torch.cat((fm, fm_chunk), 2)
+                tm = torch.cat((tm, tm_chunk), 2)
+                df_fm.append(df_fm_chunk)
+                df_tm.append(df_tm_chunk)
 
-    y,fs = librosa.load(audio_path,sr=conf.features.sr)
+            feature = torch.cat((feature, fm, tm), 2)
+            df.append(df_fm)
+            df.append(df_tm)
+
+        feature = torch.squeeze(feature)
+        # feature = torch.log(feature + 1E-9)
+        # feature = (feature - torch.mean(feature)) / torch.std(feature)
+        # feature = T.AmplitudeToDB(stype='power')(feature)
+        feature = torch.transpose(feature, 0, 1)
+        '''
+    return pcen
+
+
+def extract_feature(audio_path, feat_extractor, conf):
+    y, fs = librosa.load(audio_path, sr=conf.features.sr)
 
     'Scaling audio as per suggestion in librosa documentation'
 
-    y = y * (2**32)
+    y = y * (2 ** 32)
     pcen = feat_extractor.extract_feature(y)
-    return pcen.T
+    feature = pcen.T
+    #print(feature)
+    return feature
 
 
-
-def time_2_frame(df,fps):
-
-
+def time_2_frame(df, fps):
     'Margin of 25 ms around the onset and offsets'
 
-    df.loc[:,'Starttime'] = df['Starttime'] - 0.025
-    df.loc[:,'Endtime'] = df['Endtime'] + 0.025
+    df.loc[:, 'Starttime'] = df['Starttime'] - 0.025
+    df.loc[:, 'Endtime'] = df['Endtime'] + 0.025
 
     'Converting time to frames'
 
@@ -141,9 +184,10 @@ def time_2_frame(df,fps):
 
     end_time = [int(np.floor(end * fps)) for end in df['Endtime']]
 
-    return start_time,end_time
+    return start_time, end_time
 
-def feature_transform(conf=None,mode=None):
+
+def feature_transform(conf=None, mode=None):
     '''
        Training:
           Extract mel-spectrogram/PCEN and slice each data sample into segments of length conf.seg_len.
@@ -151,7 +195,7 @@ def feature_transform(conf=None,mode=None):
           and validation set.
        Evaluation:
            Currently using the validation set for evaluation.
-           
+
            For each audio file, extract time-frequency representation and create 3 subsets:
            a) Positive set - Extract segments based on the provided onset-offset annotations.
            b) Negative set - Since there is no negative annotation provided, we consider the entire
@@ -167,17 +211,15 @@ def feature_transform(conf=None,mode=None):
        - Num_extract_train/Num_extract_valid - Number of samples in training/validation set
                                                                                               '''
 
-
     label_tr = []
     pcen_extractor = Feature_Extractor(conf)
 
-    fps =  conf.features.sr / conf.features.hop_mel
+    fps = conf.features.sr / conf.features.hop_mel
     'Converting fixed segment legnth to frames'
 
     seg_len = int(round(conf.features.seg_len * fps))
     hop_seg = int(round(conf.features.hop_seg * fps))
     extension = "*.csv"
-
 
     if mode == 'train':
 
@@ -187,31 +229,30 @@ def feature_transform(conf=None,mode=None):
                          for path_dir, subdir, files in os.walk(meta_path)
                          for file in glob(os.path.join(path_dir, extension))]
         all_csv_files = all_csv_files[:100]
-        hdf_tr = os.path.join(conf.path.feat_train,'Mel_train.h5')
-        hf = h5py.File(hdf_tr,'w')
+        hdf_tr = os.path.join(conf.path.feat_train, 'Mel_train_fi4.h5')
+        hf = h5py.File(hdf_tr, 'w')
         hf.create_dataset('features', shape=(0, seg_len, conf.features.n_mels),
                           maxshape=(None, seg_len, conf.features.n_mels))
         num_extract = 0
         for file in all_csv_files:
-
             split_list = file.split('/')
-            print(split_list)
             glob_cls_name = split_list[split_list.index('Training_Set') + 1]
             file_name = split_list[split_list.index('Training_Set') + 1]
             df = pd.read_csv(file, header=0, index_col=False)
             audio_path = file.replace('csv', 'wav')
             print("Processing file name {}".format(audio_path))
-            pcen = extract_feature(audio_path, pcen_extractor,conf)
+            pcen = extract_feature(audio_path, pcen_extractor, conf)
             df_pos = df[(df == 'POS').any(axis=1)]
-            label_list = create_dataset(df_pos,pcen,glob_cls_name,file_name,hf,seg_len,hop_seg,fps)
+            label_list = create_dataset(df_pos, pcen, glob_cls_name, file_name, hf, seg_len, hop_seg, fps)
             label_tr.append(label_list)
+            print(hf['features'][1])
         print(" Feature extraction for training set complete")
         num_extract = len(hf['features'])
         flat_list = [item for sublist in label_tr for item in sublist]
         hf.create_dataset('labels', data=[s.encode() for s in flat_list], dtype='S20')
         data_shape = hf['features'].shape
         hf.close()
-        return num_extract,data_shape
+        return num_extract, data_shape
 
     else:
 
@@ -240,51 +281,47 @@ def feature_transform(conf=None,mode=None):
             feat_name = name + '.h5'
             audio_path = file.replace('csv', 'wav')
             feat_info = []
-            hdf_eval = os.path.join(conf.path.feat_eval,feat_name)
-            hf = h5py.File(hdf_eval,'w')
-            
+            hdf_eval = os.path.join(conf.path.feat_eval, feat_name)
+            hf = h5py.File(hdf_eval, 'w')
 
             df_eval = pd.read_csv(file, header=0, index_col=False)
             Q_list = df_eval['Q'].to_numpy()
 
-            start_time,end_time = time_2_frame(df_eval,fps)
+            start_time, end_time = time_2_frame(df_eval, fps)
 
             index_sup = np.where(Q_list == 'POS')[0][:conf.train.n_shot]
 
             difference = []
             for index in index_sup:
                 difference.append(end_time[index] - start_time[index])
-            
-            # Adaptive segment length based on the audio file. 
+
+            # Adaptive segment length based on the audio file.
             max_len = max(difference)
-            
+
             # Choosing the segment length based on the maximum size in the 5-shot.
-            # Logic was based on fitment on 12GB GPU since some segments are quite long. 
+            # Logic was based on fitment on 12GB GPU since some segments are quite long.
             if max_len < 100:
 
                 seg_len = max_len
-            elif max_len > 100 and max_len < 500 :
-                seg_len = max_len//4
+            elif max_len > 100 and max_len < 500:
+                seg_len = max_len // 4
             else:
-                seg_len = max_len//8
-                
+                seg_len = max_len // 8
 
-            
             print(f"Segment length for file is {seg_len}")
-            hop_seg = seg_len//2
+            hop_seg = seg_len // 2
 
             hf.create_dataset('feat_pos', shape=(0, seg_len, conf.features.n_mels),
-                              maxshape= (None, seg_len, conf.features.n_mels))
-            hf.create_dataset('feat_query',shape=(0,seg_len,conf.features.n_mels),maxshape=(None,seg_len,conf.features.n_mels))
-            hf.create_dataset('feat_neg',shape=(0,seg_len,conf.features.n_mels),maxshape=(None,seg_len,conf.features.n_mels))
-            hf.create_dataset('start_index_query',shape=(1,),maxshape=(None))
+                              maxshape=(None, seg_len, conf.features.n_mels))
+            hf.create_dataset('feat_query', shape=(0, seg_len, conf.features.n_mels),
+                              maxshape=(None, seg_len, conf.features.n_mels))
+            hf.create_dataset('feat_neg', shape=(0, seg_len, conf.features.n_mels),
+                              maxshape=(None, seg_len, conf.features.n_mels))
+            hf.create_dataset('start_index_query', shape=(1,), maxshape=(None))
 
-            
-
-            
-            hf.create_dataset('seg_len',shape=(1,), maxshape=(None))
-            hf.create_dataset('hop_seg',shape=(1,), maxshape=(None))
-            pcen = extract_feature(audio_path, pcen_extractor,conf)
+            hf.create_dataset('seg_len', shape=(1,), maxshape=(None))
+            hf.create_dataset('hop_seg', shape=(1,), maxshape=(None))
+            pcen = extract_feature(audio_path, pcen_extractor, conf)
             mean = np.mean(pcen)
             std = np.mean(pcen)
             hf['seg_len'][:] = seg_len
@@ -297,7 +334,6 @@ def feature_transform(conf=None,mode=None):
             print("Creating negative dataset")
 
             while end_idx_neg - (strt_index + hop_neg) > seg_len:
-
                 patch_neg = pcen[int(strt_index + hop_neg):int(strt_index + hop_neg + seg_len)]
 
                 hf['feat_neg'].resize((idx_neg + 1, patch_neg.shape[0], patch_neg.shape[1]))
@@ -319,7 +355,6 @@ def feature_transform(conf=None,mode=None):
 
                     shift = 0
                     while end_ind - (str_ind + shift) > seg_len:
-
                         patch_pos = pcen[int(str_ind + shift):int(str_ind + shift + seg_len)]
 
                         hf['feat_pos'].resize((idx_pos + 1, patch_pos.shape[0], patch_pos.shape[1]))
@@ -346,18 +381,14 @@ def feature_transform(conf=None,mode=None):
                     hf['feat_pos'][idx_pos] = patch_new
                     idx_pos += 1
 
-
-
             print("Creating query dataset")
 
             while end_idx_neg - (strt_indx_query + hop_query) > seg_len:
-
                 patch_query = pcen[int(strt_indx_query + hop_query):int(strt_indx_query + hop_query + seg_len)]
                 hf['feat_query'].resize((idx_query + 1, patch_query.shape[0], patch_query.shape[1]))
                 hf['feat_query'][idx_query] = patch_query
                 idx_query += 1
                 hop_query += hop_seg
-
 
             last_patch_query = pcen[end_idx_neg - seg_len:end_idx_neg]
 
