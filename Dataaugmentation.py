@@ -5,6 +5,7 @@ import torchaudio.transforms as T
 from torchaudio import functional as F
 import pandas as pd
 import numpy as np
+import librosa
 
 
 class Augementation():
@@ -50,31 +51,35 @@ class Augementation():
     def timeStretch(self, file, direction):
         filename = os.path.basename(file)
         data, sr = torchaudio.load(file)
-        resample = T.Resample(sr, self.conf.features.sample_rate)
+        resample = T.Resample(sr, self.conf.features.sr)
         data = resample(data)
+        print("resam",data.size())
         spectrogram = T.Spectrogram(
             n_fft=self.conf.features.n_fft,
-            hop_length=self.conf.features.hop,
+            hop_length=self.conf.features.hop_mel,
             window_fn=(torch.hamming_window),
             power=None
         )
         data = spectrogram(data)
+        print("spec", data.size())
 
-        ts_u = T.TimeStretch(hop_length=self.conf.features.hop,
+        ts_u = T.TimeStretch(hop_length=self.conf.features.hop_mel,
                              n_freq=self.conf.features.n_fft // 2 + 1,
                              fixed_rate=(1 + self.conf.features.time_stretch))
-        ts_d = T.TimeStretch(hop_length=self.conf.features.hop,
+        ts_d = T.TimeStretch(hop_length=self.conf.features.hop_mel,
                              n_freq=self.conf.features.n_fft // 2 + 1,
                              fixed_rate=(1 - self.conf.features.time_stretch))
 
+
         if direction == 'up':
             stretched_data = ts_u(data)
-            stretched_data = F.magphase(stretched_data, power=2.0)[0]
+            print(stretched_data.size())
+            #stretched_data = F.magphase(stretched_data, power=2.0)[0]
             new_labels = self._labelAugment(file, direction)
 
         elif direction == 'down':
             stretched_data = ts_d(data)
-            stretched_data = F.magphase(stretched_data, power=2.0)[0]
+            #stretched_data = F.magphase(stretched_data, power=2.0)[0]
             new_labels = self._labelAugment(file, direction)
 
         stretched_data = T.MelScale()(stretched_data)
