@@ -1,20 +1,28 @@
 set:
   features: false
   train: false
-  eval: true
+  eval: false
 
 path:
   root_dir:  E:/Pythonproject/dcase-few-shot-bioacoustic
   train_dir: E:/Pythonproject/dcase-few-shot-bioacoustic/baselines/deep_learning/Development_Set/Training_Set/
-  eval_dir:  E:/Pythonproject/dcase-few-shot-bioacoustic/baselines/deep_learning/Development_Set/Validation_Set/
+  val_dir:  E:/Pythonproject/dcase-few-shot-bioacoustic/baselines/deep_learning/Development_Set/Validation_Set/
+  eval_dir:  E:/Pythonproject/dcase-few-shot-bioacoustic/baselines/deep_learning/Development_Set/Evaluation_set_5shots/
   feat_path: ${path.root_dir}/Features
   feat_train: ${path.feat_path}/feat_train
-  feat_eval:  ${path.feat_path}/feat_eval
-  Model: ${path.root_dir}/model_weights
-  best_model: ${path.Model}/best_model.pth
-  last_model: ${path.Model}/last_model.pth
+  #feat_eval:  ${path.feat_path}/feat_eval/
+  feat_val: E:/Pythonproject/dcase-few-shot-bioacoustic/Features/feat_eval/QU/Small
+  feat_eval:  E:/Pythonproject/dcase-few-shot-bioacoustic/Features/feat_eval/
+  Model: ${path.root_dir}/baselines/deep_learning/TestPro
+  #output: ${path.root_dir}/EvalOutput
+  best_model: ${path.Model}/TestAuto_best_model.pth
+  last_model: ${path.Model}/TestAuto_last_model.pth
 
 features:
+  freq_mask: 10
+  time_mask: 10
+  time_stretch: 0.5
+  direction: bidirectional
   seg_len: 0.200
   hop_seg: 0.100
   eps: 2.220446049250313e-16
@@ -33,9 +41,9 @@ train:
   lr_rate: 0.001
   scheduler_gamma: 0.5
   scheduler_step_size: 10
-  epochs: 2
+  epochs: 20
   num_episodes: 2000
-  encoder: Protonet  # Protonet or Resnet
+  encoder: Auto # Resnet Protonet
 eval:
   samples_neg: 50
   iterations: 10
