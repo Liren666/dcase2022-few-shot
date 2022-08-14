@@ -84,10 +84,30 @@ class Datagen(object):
 
     def __init__(self, conf):
 
-        hdf_path = os.path.join(conf.path.feat_train, 'Mel_train.h5')
-        hdf_train = h5py.File(hdf_path, 'r+')
-        self.x = hdf_train['features'][:]
-        self.labels = [s.decode() for s in hdf_train['labels'][:]]
+        hdf_path_1 = os.path.join(conf.path.feat_train, 'train_682.h5')
+        hdf_path_2 = os.path.join(conf.path.feat_train, 'Mel_train_WMW_P.h5')
+        hdf_path_3 = os.path.join(conf.path.feat_train, 'Mel_train_fi4.h5')
+        hdf_train_1 = h5py.File(hdf_path_1, 'r+')
+        hdf_train_2 = h5py.File(hdf_path_2, 'r+')
+        hdf_train_3 = h5py.File(hdf_path_3, 'r+')
+        feat_1 = hdf_train_1['features'][:]
+        print(len(feat_1))
+        feat_2 = hdf_train_2['features'][:]
+        print(len(feat_2))
+        feat_3 = hdf_train_3['features'][:]
+        print(len(feat_3))
+        labels_1 = [s.decode() for s in hdf_train_1['labels'][:]]
+        labels_2 = [s.decode() for s in hdf_train_2['labels'][:]]
+        labels_3 = [s.decode() for s in hdf_train_3['labels'][:]]
+
+        feat12con = np.concatenate((feat_1, feat_2), axis=0)
+        label12con = np.concatenate((labels_1, labels_2), axis=0)
+
+        self.x = np.concatenate((feat12con, feat_3), axis=0)
+        print("feature",self.x.shape)
+
+        self.labels = np.concatenate((label12con, labels_3), axis=0)
+        #print("lable",self.labels.shape)
 
         class_set = set(self.labels)
 
