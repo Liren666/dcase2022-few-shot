@@ -9,17 +9,19 @@ from Datagenerator import Datagen
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
-from Model import ProtoNet, ResNet
+from Model import ProtoNet, ResNet, AutoProtoNetEmbedding
 from tqdm import tqdm
 from collections import Counter
 from batch_sampler import EpisodicBatchSampler
 from torch.nn import functional as F
-from util import prototypical_loss as loss_fn
+from util import prototypical_loss as protoloss_fn
+from util import Autoproto_loss as Autoprotoloss_fn
 from util import evaluate_prototypes
 from glob import glob
 import hydra
 from omegaconf import DictConfig, OmegaConf
 import h5py
+
 
 
 def init_seed():
@@ -58,8 +60,13 @@ def train_protonet(encoder, train_loader, valid_loader, conf, num_batches_tr, nu
     val_loss = []
     train_acc = []
     val_acc = []
+    val_loss_array = np.array([])
+    val_acc_array = np.array([])
+    epoch_array = np.array([])
     best_val_acc = 0.0
+
     encoder.to(device)
+
 
     for epoch in range(num_epochs):
 
@@ -73,7 +80,8 @@ def train_protonet(encoder, train_loader, valid_loader, conf, num_batches_tr, nu
             x = x.to(device)
             y = y.to(device)
             x_out = encoder(x)
-            tr_loss, tr_acc = loss_fn(x_out, y, conf.train.n_shot)
+            #x_out_2 = encoder.forward_decoder(x)
+            tr_loss, tr_acc = protoloss_fn(x_out, y, conf.train.n_shot)
             train_loss.append(tr_loss.item())
             train_acc.append(tr_acc.item())
 
@@ -92,18 +100,27 @@ def train_protonet(encoder, train_loader, valid_loader, conf, num_batches_tr, nu
             x, y = batch
             x = x.to(device)
             x_val = encoder(x)
-            valid_loss, valid_acc = loss_fn(x_val, y, conf.train.n_shot)
+            #x_val_2 = encoder.forward_decoder(x)
+            valid_loss, valid_acc = protoloss_fn(x_val, y, conf.train.n_shot)
             val_loss.append(valid_loss.item())
             val_acc.append(valid_acc.item())
         avg_loss_vd = np.mean(val_loss[-num_batches_vd:])
         avg_acc_vd = np.mean(val_acc[-num_batches_vd:])
+        val_loss_array = np.append(val_loss_array, avg_loss_vd)
+        val_acc_array = np.append(val_acc_array, avg_acc_vd)
+        epoch_array = np.append(epoch_array, epoch)
 
         print('Epoch {}, Validation loss {:.4f}, Validation accuracy {:.4f}'.format(epoch, avg_loss_vd, avg_acc_vd))
         if avg_acc_vd > best_val_acc:
             print("Saving the best model with valdation accuracy {}".format(avg_acc_vd))
             best_val_acc = avg_acc_vd
             # best_state = model.state_dict()
-            torch.save({'encoder': encoder.state_dict()}, best_model_path)
+            torch.save({'encoder': encoder.state_dict(),'epoch':num_epochs,
+                        'val_loss': avg_loss_vd, 'val_acc':avg_acc_vd}, best_model_path)
+
+    df_out = pd.DataFrame({'Epoch': epoch_array, 'Val_loss': val_loss_array, 'Val_acc': val_acc_array})
+    csv_path = os.path.join(conf.path.root_dir, 'T_log_CNNAug.csv')
+    df_out.to_csv(csv_path, index=False)
     torch.save({'encoder': encoder.state_dict()}, last_model_path)
 
     return best_val_acc, encoder
@@ -126,6 +143,10 @@ def main(conf: DictConfig):
         print("Shape of dataset is {}".format(data_shape))
         print("Total training samples is {}".format(Num_extract_train))
 
+        #Num_extract_eval = feature_transform(conf=conf, mode='val')
+        #print("Total number of samples used for valuation: {}".format(Num_extract_eval))
+        #print(" --Feature Extraction Complete--")
+
         #Num_extract_eval = feature_transform(conf=conf, mode='eval')
         #print("Total number of samples used for evaluation: {}".format(Num_extract_eval))
         #print(" --Feature Extraction Complete--")
@@ -139,10 +160,17 @@ def main(conf: DictConfig):
 
         gen_train = Datagen(conf)
         X_train, Y_train, X_val, Y_val = gen_train.generate_train()
+
         X_tr = torch.tensor(X_train)
+        #print("X_tr:", X_tr.size())
         Y_tr = torch.LongTensor(Y_train)
+        #print("Y_tr:", Y_tr.size())
+
         X_val = torch.tensor(X_val)
+        #print("X_val:", X_val.size())
         Y_val = torch.LongTensor(Y_val)
+        #print("Y_val:", Y_val.size())
+
 
         samples_per_cls = conf.train.n_shot * 2
 
@@ -184,11 +212,10 @@ def main(conf: DictConfig):
         device = 'cuda'
 
         init_seed()
-
         name_arr = np.array([])
         onset_arr = np.array([])
         offset_arr = np.array([])
-        all_feat_files = [file for file in glob(os.path.join(conf.path.feat_eval, '*.h5'))]
+        all_feat_files = [file for file in glob(os.path.join(conf.path.feat_val, '*.h5'))]
 
         for feat_file in all_feat_files:
             feat_name = feat_file.split('/')[-1]
@@ -198,6 +225,9 @@ def main(conf: DictConfig):
             print("Processing audio file : {}".format(audio_name2))
 
             hdf_eval = h5py.File(feat_file, 'r')
+            feat_q = hdf_eval['feat_query']
+            print(len(feat_q))
+
             strt_index_query = hdf_eval['start_index_query'][:][0]
 
             onset, offset = evaluate_prototypes(conf, hdf_eval, device, strt_index_query)
@@ -208,8 +238,10 @@ def main(conf: DictConfig):
             offset_arr = np.append(offset_arr, offset)
 
         df_out = pd.DataFrame({'Audiofilename': name_arr, 'Starttime': onset_arr, 'Endtime': offset_arr})
-        csv_path = os.path.join(conf.path.root_dir, 'Eval_out.csv')
+        csv_path = os.path.join(conf.path.root_dir, 'Evalout_HB_pro.csv')
         df_out.to_csv(csv_path, index=False)
+
+
 
 
 if __name__ == '__main__':
